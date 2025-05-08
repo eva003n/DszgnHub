@@ -1,0 +1,42 @@
+//Checkout a cheatsheet at https://www.totaltypescript.com/tsconfig-cheat-sheet
+
+{
+  "compilerOptions": {
+
+    //Base options
+    "target": "ES2022",
+    "module": "nodenext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    //Module
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "moduleResolution": "nodenext",
+    "lib": ["ES2022"],
+
+    // Type checking and strictness
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "allowSyntheticDefaultImports": true,
+    "strictNullChecks": true,
+    "checkJs": true,
+    "allowUnreachableCode": false,
+    "strictFunctionTypes": true,
+    "strictPropertyInitialization": true,
+    "noFallthroughCasesInSwitch": true,
+    "useUnknownInCatchVariables": true,               /* Default catch clause variables as 'unknown' instead of 'any'. */
+
+    // "allowImportingTsExtensions": true,
+    // "noEmit": true
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules"]
+}
