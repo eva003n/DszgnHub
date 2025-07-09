@@ -1,45 +1,44 @@
 import mongoose, { Schema } from "mongoose";
+import aggregatePaginate from "mongoose-aggregate-paginate-v2"
 import { options, recipeDatabase } from "./index.js";
-import type { NotificationInterface } from "../../interfaces/Recipe-sharing-app/model.interface.js";
-import { NODE_ENV } from "../../config/env.js";
+import type { NotificationInterface, RecipeModel } from "../../interfaces/Recipe-sharing-app/model.interface.js";
 
-const notificationSchema = new Schema<NotificationInterface>(
+const notificationSchema = new Schema<NotificationInterface, RecipeModel>(
   {
     message: {
       type: String,
-      required: [true, "Message is required"],
+      required: [true, "Nitification message is required"],
     },
-    //main resource
     recipe: {
       type: Schema.Types.ObjectId,
-      required: [true, "RecipeId is required"],
+      required: true
     },
-
-    sender: {
-      type: Schema.Types.ObjectId,
-      required: [true, "UserId is required"],
-    },
+    
     receiver: {
       type: Schema.Types.ObjectId,
-      required: [true, "UserId is required"],
+      required: [true, "Notification receiver  is required"],
+      index: true
     },
-    //comment made, received a follow or received a  like
+    //comment, like,  follow
     notifyType: {
       type: String,
       required: [true, "Notification type is required"],
+      enum: ["Like", "Comment", "Follow"]
     },
+    isSeen: {
+      type: Boolean,
+      default: false
+    }
   },
   options
 );
 
-const Notification = recipeDatabase.model<NotificationInterface>(
+notificationSchema.plugin(aggregatePaginate)
+const Notification = recipeDatabase.model<NotificationInterface, RecipeModel>(
   "Notification",
   notificationSchema
 );
 
-if (NODE_ENV !== "development") {
-  //ensures indexes are built
-  Notification.createIndexes();
-}
+
 
 export default Notification;
