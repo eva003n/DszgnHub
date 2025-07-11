@@ -114,8 +114,8 @@ const sendNotification = async (
   if(receivers) {
     receivers.forEach((res: Response) => {
       res.write(
+        `id: ${notification._id}\n` +
         `event: notify\n` +
-        `id: ${receiver}\n` +
         `data: ${JSON.stringify(notification)}\n` +
         `retry: 5000\n\n`)
 
