@@ -5,26 +5,39 @@ import { getUser } from "./users.controller.js";
 import ApiError from "../../utils/ApiError.js";
 import ApiResponse from "../../utils/ApiResponse.js";
 import asyncHandler from "../../utils/asyncHandler.js";
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
+import type { requestParam } from "../../middlewares/validators/Recipe-sharing-app/index.js";
+import type { ProtectedRequest } from "../../interfaces/Recipe-sharing-app/request.interface.js";
+import type { FollowInterface } from "../../interfaces/Recipe-sharing-app/model.interface.js";
+import type { IFollows } from "../../interfaces/Recipe-sharing-app/follow.interface.js";
+import { sendNotification } from "./notifications.controller.js";
 
-const followUser = asyncHandler(async (req:Request, res:Response) => {
-    const { user_id } = req.params;
+const followUser = asyncHandler(async (req:ProtectedRequest, res:Response, next: NextFunction) => {
+  //id of the person being followed
+    const { user_id } = req.params ;
 
  
 
     //check if user to be followed actually exists
-    const isUser = await User.findById(user_id).exec();
+    const isUser = await User.findOne({_id:user_id, }, {userName: 1, followers: 1, following: 1});
     if (!isUser)
-      return res.status(404).json(new ApiError(404, "User does not exist"));
+      return res
+        .status(404)
+        .json(ApiError.notFound(404, `${req.originalUrl}`, "User does not exist"));
 
-    //prevent the currently logged in user from following themselves
-    //mongoose.Types.ObjectId
+   // prevent the currently logged in user from following themselves
     //the comaprison only works when they are strings since equality checks on objects compare references rather than value
-    // if (user_id.toString() === req.user._id.toString()) {
-    //   return res
-    //     .status(422)
-    //     .json(new ApiError(422, "You cannot follow yourself"));
-    // }
+    if ( user_id && user_id?.toString() === req.user._id.toString()) {
+      return res
+        .status(422)
+        .json(
+          ApiError.unprocessable(
+            422,
+            `${req.originalUrl}`,
+            "You cannot follow yourself"
+          )
+        );
+    }
 
     //if follow already exists delete it to implement unfollow
 
@@ -32,33 +45,24 @@ const followUser = asyncHandler(async (req:Request, res:Response) => {
       {
         $and: [
           {
-            // followerId: req.user._id, //currently logged in user
+            follower: req.user._id, //currently logged in user
           },
           {
-            followeeId: convertToObjectId(user_id), // following same persion
+            followee: convertToObjectId(user_id!), // following same persion
           },
         ],
       },
-      { __v: 0 }
+      // { __v: 0 }
     );
-    //get followed user
-    const followedUser = await getUser(user_id);
+    
     //if its an existing follow implement unfollow logic by deleting it
     if (isExistingFollow)
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(
-            200,
-            isExistingFollow,
-            `Unfollowed ${[]} successfully`
-          )
-        );
+      return res.status(201).json(new ApiResponse(409, {}, `Successfully unfollowed ${isUser.userName}`))
 
     //if its not an existibg follow create follow
     const createFollow = await Follow.create({
-      // followerId: req.user._id,
-      followeeId: convertToObjectId(user_id),
+      follower: req.user._id,
+      followee: user_id
     });
     //update followers and following count
     //calculate the followers and followings and update user profile
@@ -68,10 +72,10 @@ const followUser = asyncHandler(async (req:Request, res:Response) => {
         $match: {
           $or: [
             {
-              // followerId: req.user._id,
+              follower: req.user._id,
             },
             {
-              // followeeId: req.user._id,
+              followee: req.user._id,
             },
           ],
         },
@@ -84,7 +88,7 @@ const followUser = asyncHandler(async (req:Request, res:Response) => {
             $sum: {
               $cond: [
                 {
-                  // $eq: ["$followeeId", req.user._id],
+                  $eq: ["$followee", convertToObjectId(user_id as string)],
                 },
                 1,
                 0,
@@ -95,7 +99,7 @@ const followUser = asyncHandler(async (req:Request, res:Response) => {
             $sum: {
               $cond: [
                 {
-                  // $eq: ["$followerId", req.user._id],
+                  $eq: ["$follower", req.user._id],
                 },
                 1,
                 0,
@@ -108,41 +112,41 @@ const followUser = asyncHandler(async (req:Request, res:Response) => {
         $project: {
           followersCount: 1,
           followingCount: 1,
-          following: true,
           _id: 0,
         },
       },
     ];
 
-    const follows = await Follow.aggregate(followingsCalculation);
+    const follows:IFollows[] = await Follow.aggregate(followingsCalculation);
+    
 
-    //update the follow metrics for the current user
-    const [follow] = follows;
 
-    const currentUser = await User.findOneAndUpdate(
-      // { _id: req.user._id },
-      {
-        $set: {
-          followers: follow.followersCount,
-          following: follow.followingCount,
-        },
-      },
-      { new: true }
-    );
+//followee's, followers count is updated
+isUser.followers = follows[0]!.followersCount
+//follower's, following count is updated
+const currentUser = await User.findById(req.user._id)
 
-    if (createFollow && follows) {
+if(!currentUser) return next(
+  ApiError.notFound(404, `${req.originalUrl}`, "Cannot find current user")
+);
+currentUser.following = follows[0]!.followingCount
+
+await isUser.save()
+await currentUser.save()
+
+//send notification
+await sendNotification(isUser._id, `${req.user.userName} started following you.`, "Follow")
+    
       return res
         .status(201)
         .json(
           new ApiResponse(
             201,
-            follows,
-            // `Successfully followed ${followedUser.userName}`
+            isUser,
+            "User followed successfully"
           )
         );
-    } else {
-      throw new Error("Something went wrong");
-    }
+
 
 })
 
