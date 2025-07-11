@@ -1,4 +1,3 @@
-
 import type { Request, Response, NextFunction } from "express";
 import Rating from "../../models/Recipe-sharing-app/rating.model.js";
 import ApiError from "../../utils/ApiError.js";
@@ -6,38 +5,57 @@ import ApiResponse from "../../utils/ApiResponse.js";
 import asyncHandler from "../../utils/asyncHandler.js";
 import { convertToObjectId, formatError } from "../../utils/index.js";
 import Recipe from "../../models/Recipe-sharing-app/recipe.model.js";
-import type { param, rate } from "../../middlewares/validators/Recipe-sharing-app/index.js";
+import type { rate } from "../../middlewares/validators/Recipe-sharing-app/index.js";
+import type { IRating } from "../../interfaces/Recipe-sharing-app/rate.interface.js";
 
- const rateRecipe = asyncHandler(async (req:Request, res:Response, next:NextFunction) => {
-  const { id } = req.params as param;
-  const { rating } = req.body as rate;
+const rateRecipe = asyncHandler(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const { rating, ratedBy }: rate = req.body;
+
+    //transaction
+    const session = await Rating.startSession();
+    session.startTransaction();
 
     //prevent current user from rating more than once
-    const isRatedByUser = await Rating.findOne({
-      recipeId: convertToObjectId(id),
-      // userId: req.user._id,
-    });
+    const isRated = await Rating.findOne({
+      $and: [{ recipe: id }, { ratedBy: ratedBy }],
+    }).session(session);
 
-    if (isRatedByUser) 
-      return next(ApiError.conflictRequest(409, "Recipe already rated"));
-  
-    const recipeRating = await Rating.create({
-      // userId: req.user._id || "",
-      recipeId: id,
-      rating,
-    });
+    if (isRated) {
+      await session.abortTransaction();
+      await session.endSession();
+      return next(
+        ApiError.conflictRequest(
+          409,
+          `${req.originalUrl}`,
+          "Recipe already rated"
+        )
+      );
+    }
+    const recipeRating = await Rating.create(
+      [
+        {
+          recipe: id as string,
+          ratedBy,
+          rating,
+        },
+      ],
+      { session }
+    );
 
+    // recipeRating.populate(["ratedBy, +userName ", "recipe, +title +rating"]);
     const averageRatingPipeline = [
       //fin all the all recipes with the id that have being rated
       {
         $match: {
-          recipeId: convertToObjectId(id),
+          recipe: convertToObjectId(id as string),
         },
       },
-      //grooup them and calculate their avarage
+      //group the ratings for a specific recipe  and calculate their avarage
       {
         $group: {
-          _id: "$recipeId",
+          _id: "$recipe",
           averageRating: {
             $avg: "$rating",
           },
@@ -52,38 +70,31 @@ import type { param, rate } from "../../middlewares/validators/Recipe-sharing-ap
       },
     ];
 
-    const recipeAverageRating = await Rating.aggregate(
+    const recipeAverageRating = await Rating.aggregate<IRating>(
       averageRatingPipeline
-    ).exec();
+    ).session(session);
 
-    if (Array.isArray(recipeAverageRating) && recipeAverageRating.length > 0) {
-      const updatedRecipe = await Recipe.findOneAndUpdate(
-        { _id: convertToObjectId(id) },
-        { $set: { rating: recipeAverageRating[0].averageRating } },
-        { new: true }
+    const recipe = await Recipe.findById(id).session(session);
+    if (!recipe) {
+     await session.abortTransaction();
+     await session.endSession();
+      return next(
+        ApiError.notFound(404, `${req.originalUrl}`, "Recipe doesn't exist")
       );
+    }
 
-        return res
-          .status(201)
-          .json(
-            new ApiResponse(
-              200,
-              updatedRecipe,
-              "Recipe rated successfully"
-            )
-          );
-        }else {
-          return res
-          .status(201)
-          .json(
-            new ApiResponse(
-              200,
-              updatedRecipe,
-              "Recipe rated successfully"
-            ))
+    if (!recipeAverageRating) {
+      recipe.rating = recipeAverageRating[9]["averageRating"];
+      await recipe.save();
+      
+      session.commitTransaction();
+      session.endSession();
+    }
 
-        }
-  
-})
+    return res
+      .status(201)
+      .json(new ApiResponse(200, recipe, "Recipe rated successfully"));
+  }
+);
 
 export default rateRecipe;
