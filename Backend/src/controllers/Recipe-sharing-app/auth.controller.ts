@@ -86,7 +86,6 @@ const token = speakeasy.totp({
   encoding: "base32",
   step: 300, //5 min
 })
-console.log(token)
     const { data, error } = await sendEmail(
       email,
       "DezgnHubAPI",
@@ -466,4 +465,38 @@ const sendEmail = async (
   return { data, error };
 };
 
-export { signUp, logIn, logOut, tokenRefresh, verifyEmail, verifyMFA };
+const resendVerificationCode = (req: Request, res:Response, next: NextFunction) => {
+  
+ const {user_id} = req.param;
+ 
+ const user = await User.findById(user_id);
+ 
+ if(!user) {
+   next(ApiError.notFound(404, req.originalUrl, "User does not exist"));
+ }
+ //
+const token = speakeasy.totp({
+  secret: code,
+  encoding: "base32",
+  step: 300, //5 min
+})
+
+user.verificationCode = token;
+await user.save();
+
+    const { data, error } = await sendEmail(
+      email,
+      "DezgnHubAPI",
+      "Verification code",
+      token
+    );
+    if (error){
+      return next(
+        ApiError.internalServerError(500, req.originalUrl, error.message)
+      );
+    }
+    
+  return res.status(200).json(new ApiResponse(200, null, "Check the verification code resent to email"));
+}
+
+export { signUp, logIn, logOut, tokenRefresh, verifyEmail, verifyMFA, resendVerificationCode};
